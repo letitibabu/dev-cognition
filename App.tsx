@@ -4,12 +4,16 @@ import { BlockItem } from './components/BlockItem';
 import { Editor } from './components/Editor';
 import { DecisionModal } from './components/DecisionModal';
 import { Scratchpad } from './components/Scratchpad';
+import { CollabView } from './components/CollabView'; // Import new view
 import { Session, Block, BlockType, TaskMetadata } from './types';
 import { loadSessions, saveSessions, generateId } from './services/storageService';
 import { generateInsight } from './services/geminiService';
 import { Sparkles } from 'lucide-react';
 
 const App: React.FC = () => {
+  const [mode, setMode] = useState<'SOLO' | 'COLLAB'>('SOLO');
+  
+  // --- Solo State ---
   const [sessions, setSessions] = useState<Session[]>([]);
   const [activeSessionId, setActiveSessionId] = useState<string | null>(null);
   const [isDecisionModalOpen, setIsDecisionModalOpen] = useState(false);
@@ -23,7 +27,7 @@ const App: React.FC = () => {
     if (loaded.length > 0) {
       setActiveSessionId(loaded[0].id);
     } else {
-      createSession(); // Create first session if none
+      createSession(); 
     }
   }, []);
 
@@ -71,7 +75,7 @@ const App: React.FC = () => {
   const addBlock = (type: BlockType, content: string, metadata?: any) => {
     if (!activeSessionId) return;
     
-    // Auto-update title if it's the first note and title is default
+    // Auto-update title logic
     let titleUpdate = {};
     if (activeSession?.blocks.length === 0 && type === BlockType.NOTE && activeSession.title === 'New Stream') {
       const firstLine = content.split('\n')[0].substring(0, 30);
@@ -113,22 +117,14 @@ const App: React.FC = () => {
 
   const handleAskAI = async (query: string) => {
     if (!activeSession) return;
-
-    // 1. Add User Query to stream
     addBlock(BlockType.AI_USER_MSG, query);
-
     setIsAiLoading(true);
-    // 2. Get AI Response based on updated session (need to pass current session + new block virtually)
-    // We construct a temporary session object for the service call to include the just-added query
     const tempSession = {
         ...activeSession,
         blocks: [...activeSession.blocks, { id: 'temp', type: BlockType.AI_USER_MSG, content: query, timestamp: Date.now() }]
     };
-
     const insight = await generateInsight(tempSession, query);
     setIsAiLoading(false);
-    
-    // 3. Add AI Response
     addBlock(BlockType.AI_INSIGHT, insight);
   };
 
@@ -143,6 +139,8 @@ const App: React.FC = () => {
   return (
     <div className="flex h-screen bg-background overflow-hidden text-gray-200 font-sans selection:bg-primary/30">
       <Sidebar 
+        mode={mode}
+        setMode={setMode}
         sessions={sessions} 
         activeSessionId={activeSessionId}
         onSelectSession={setActiveSessionId}
@@ -150,67 +148,73 @@ const App: React.FC = () => {
         onDeleteSession={deleteSession}
       />
       
-      <main className="flex-1 flex flex-col relative min-w-0">
-        {/* Header */}
-        <div className="h-14 border-b border-border flex items-center justify-between px-6 flex-shrink-0 bg-background/50 backdrop-blur-sm z-10">
-          <div className="flex items-center gap-3">
-             <input 
-              value={activeSession?.title || ''}
-              onChange={(e) => activeSessionId && updateSession(activeSessionId, { title: e.target.value })}
-              className="bg-transparent text-lg font-bold text-white outline-none placeholder-gray-600 w-full min-w-[300px]"
-              placeholder="Stream Title..."
-             />
-          </div>
-          <div className="flex items-center gap-2">
-            <button 
-                onClick={handleManualAIReview}
-                disabled={isAiLoading || !activeSession}
-                className="flex items-center gap-2 text-xs font-medium text-indigo-400 hover:text-indigo-300 px-3 py-1.5 rounded-full border border-indigo-500/30 hover:bg-indigo-500/10 transition-colors"
-            >
-                <Sparkles className="w-3 h-3" />
-                Review Context
-            </button>
-          </div>
-        </div>
+      {mode === 'SOLO' ? (
+        <main className="flex-1 flex flex-col relative min-w-0">
+            {/* Header */}
+            <div className="h-14 border-b border-border flex items-center justify-between px-6 flex-shrink-0 bg-background/50 backdrop-blur-sm z-10">
+            <div className="flex items-center gap-3">
+                <input 
+                value={activeSession?.title || ''}
+                onChange={(e) => activeSessionId && updateSession(activeSessionId, { title: e.target.value })}
+                className="bg-transparent text-lg font-bold text-white outline-none placeholder-gray-600 w-full min-w-[300px]"
+                placeholder="Stream Title..."
+                />
+            </div>
+            <div className="flex items-center gap-2">
+                <button 
+                    onClick={handleManualAIReview}
+                    disabled={isAiLoading || !activeSession}
+                    className="flex items-center gap-2 text-xs font-medium text-indigo-400 hover:text-indigo-300 px-3 py-1.5 rounded-full border border-indigo-500/30 hover:bg-indigo-500/10 transition-colors"
+                >
+                    <Sparkles className="w-3 h-3" />
+                    Review Context
+                </button>
+            </div>
+            </div>
 
-        {/* Stream Content */}
-        <div className="flex-1 overflow-y-auto px-4 md:px-0" ref={scrollRef}>
-          <div className="max-w-3xl mx-auto py-8">
-            {activeSession ? (
-              <>
-                {activeSession.blocks.length === 0 && (
-                  <div className="text-center mt-20 text-secondary">
-                    <p className="text-sm">This is your space to think.</p>
-                    <p className="text-xs mt-2">Start with a plan, a bug report, or a raw idea.</p>
-                  </div>
+            {/* Stream Content */}
+            <div className="flex-1 overflow-y-auto px-4 md:px-0" ref={scrollRef}>
+            <div className="max-w-3xl mx-auto py-8">
+                {activeSession ? (
+                <>
+                    {activeSession.blocks.length === 0 && (
+                    <div className="text-center mt-20 text-secondary">
+                        <p className="text-sm">This is your space to think.</p>
+                        <p className="text-xs mt-2">Start with a plan, a bug report, or a raw idea.</p>
+                    </div>
+                    )}
+                    {activeSession.blocks.map(block => (
+                    <BlockItem 
+                        key={block.id} 
+                        block={block} 
+                        onToggleTask={toggleTask}
+                    />
+                    ))}
+                </>
+                ) : (
+                <div className="flex items-center justify-center h-full text-secondary">
+                    Select or create a stream to begin.
+                </div>
                 )}
-                {activeSession.blocks.map(block => (
-                  <BlockItem 
-                    key={block.id} 
-                    block={block} 
-                    onToggleTask={toggleTask}
-                  />
-                ))}
-              </>
-            ) : (
-              <div className="flex items-center justify-center h-full text-secondary">
-                Select or create a stream to begin.
-              </div>
-            )}
-          </div>
-        </div>
+            </div>
+            </div>
 
-        {/* Editor */}
-        {activeSessionId && (
-          <Editor 
-            onAddNote={(c) => addBlock(BlockType.NOTE, c)}
-            onAddTask={(c) => addBlock(BlockType.TASK, c, { completed: false })}
-            onOpenDecisionModal={() => setIsDecisionModalOpen(true)}
-            onAskAI={handleAskAI}
-            isAiLoading={isAiLoading}
-          />
-        )}
-      </main>
+            {/* Editor */}
+            {activeSessionId && (
+            <Editor 
+                onAddNote={(c) => addBlock(BlockType.NOTE, c)}
+                onAddTask={(c) => addBlock(BlockType.TASK, c, { completed: false })}
+                onOpenDecisionModal={() => setIsDecisionModalOpen(true)}
+                onAskAI={handleAskAI}
+                isAiLoading={isAiLoading}
+            />
+            )}
+        </main>
+      ) : (
+          <div className="flex-1 overflow-hidden">
+              <CollabView />
+          </div>
+      )}
 
       <Scratchpad />
       
